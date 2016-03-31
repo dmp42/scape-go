@@ -1,0 +1,70 @@
+# Convenient to develop
+FROM debian:jessie
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y python-pip python-dev && \
+    apt-get install -y curl bison && \
+    apt-get install -y  git && \
+    rm -rf /var/lib/apt/lists/*
+
+# Workaround gvm non-portability by replacing sh
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+
+# Creating test account
+RUN adduser --quiet testing
+
+# Copy contrib folder to get helper scripts and offline gvm
+ENV BUILD_DIR /home/testing/build
+COPY ./gvm $BUILD_DIR/gvm
+RUN chown -R testing $BUILD_DIR
+RUN mkdir -p /src && chown -R testing /src
+
+# Switch to user testing - doesn't work like it should
+# USER testing
+
+# Setup codecov dev tools
+RUN pip install --user codecov
+
+# Setup gvm base
+RUN $BUILD_DIR/gvm/binscripts/gvm-installer && \
+    source ~/.gvm/scripts/gvm && \
+    gvm install go1.4.3 --prefer-binary && \
+    gvm install go1.5.3 --prefer-binary && \
+    gvm install go1.6 --prefer-binary && \
+    gvm alias create 1.4 go1.4.3 && \
+    gvm alias create 1.5 go1.5.3 && \
+    gvm alias create 1.6 go1.6 && \
+    gvm alias create old 1.5 && \
+    gvm alias create current 1.6 && \
+    gvm alias create future 1.6
+
+# Setup basic go tools
+ENV _GOLINT_REV 32a87160691b3c96046c0c678fe57c5bef761456
+ENV _GOCOV_REV ac431cdb392ef21dc2aa61f4f4470ada6b70fced
+
+RUN source ~/.gvm/scripts/gvm && \
+    gvm use 1.4 && \
+    mkdir -p "$GOPATH/src/github.com/axw" && mkdir -p "$GOPATH/src/github.com/golang" && \
+    cd $GOPATH/src/github.com/golang && git clone https://github.com/golang/lint.git && \
+    cd lint && git checkout $_GOLINT_REV && \
+    cd $GOPATH/src/github.com/axw && git clone https://github.com/axw/gocov.git && \
+    cd gocov && git checkout $_GOCOV_REV
+#    gvm use 1.5 && \
+#    go get github.com/axw/gocov/gocov@$_GOCOV_REV github.com/golang/lint/golint@$_GOLINT_REV && \
+#    gvm use 1.6 && \
+#    go get github.com/axw/gocov/gocov@$_GOCOV_REV github.com/golang/lint/golint@$_GOLINT_REV
+
+# XXX install godep &/| glide
+
+# Install magic
+COPY ./my /usr/local/bin/
+
+ENV SCAPE_REPO github.com/dmp42/scape-go
+ENV SCAPE_BUILDTAGS ""
+ENV SCAPE_DEBUG ""
+
+VOLUME /src
+WORKDIR /src
+
+ENTRYPOINT ["my"]

@@ -1,0 +1,100 @@
+# Pony-up!
+machine:
+  services:
+    - docker
+
+environment:
+  # Buildtags
+    MY_BUILDTAGS: ""
+    MY_PROJECT: "$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME"
+
+dependencies:
+  override:
+    # Buid it to test ourselves
+    - docker build -t dmp42/scape-go:testing -f Dockerfile.testing .
+    # Other projects should just pull it
+    # - docker pull dmp42/scape-go:testing
+
+test:
+  pre:
+    # Use future
+    - ./scape gvm use future
+
+    # WORKAROUND https://github.com/docker/distribution/issues/807
+    # Build everything. This will catch compile errors, and it's also necessary for go vet to work properly.
+    - ./scape go install \$SCAPE_PKGS
+
+  override:
+    - docker exec testing my make fmt
+    - docker exec testing my make vet
+    - docker exec testing my make lint
+
+    - docker exec testing my gvm use stable
+
+
+
+    - export ROOT_PACKAGE=$(docker exec testing my go list .)
+    - $(docker exec testing my go list -tags \"$DOCKER_BUILDTAGS\" ./... | grep -v ^github.com/docker/distribution/vendor)
+    \
+    | xargs -L 1 -I{} bash -c 'export PACKAGE={}; go test -tags "$DOCKER_BUILDTAGS" -test.short -coverprofile=$GOPATH/src/$PACKAGE/coverage.out -coverpkg=$(./coverpkg.sh $PACKAGE $ROOT_PACKAGE) $PACKAGE':
+
+
+
+
+
+    - docker exec testing my export PKGS="$(docker exec testing my go list ./... | grep -v ^github.com/docker/distribution/vendor)"
+  post:
+  # Report to codecov
+    - bash <(curl -s https://codecov.io/bash)
+
+
+# export ROOT_PACKAGE=$(go list .); go list -tags "$DOCKER_BUILDTAGS" ./... | xargs -L 1 -I{} bash -c 'export PACKAGE={}; go test -tags "$DOCKER_BUILDTAGS" -test.short -coverprofile=$GOPATH/src/$PACKAGE/coverage.out -coverpkg=$(./coverpkg.sh $PACKAGE $ROOT_PACKAGE) $PACKAGE'
+
+#deployment:
+#  hub:
+#    branch: master
+#    commands:
+#      - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
+#      - docker push circleci/elasticsearch
+
+
+
+
+
+
+  environment:
+  # Convenient shortcuts to "common" locations
+    CHECKOUT: /home/ubuntu/$CIRCLE_PROJECT_REPONAME
+    BASE_DIR: src/github.com/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME
+  # Trick circle brainflat "no absolute path" behavior
+    BASE_STABLE: ../../../$HOME/.gvm/pkgsets/stable/global/$BASE_DIR
+    DOCKER_BUILDTAGS: "include_rados include_oss include_gcs"
+  # Workaround Circle parsing dumb bugs and/or YAML wonkyness
+    CIRCLE_PAIN: "mode: set"
+  # Ceph config
+    RADOS_POOL: "docker-distribution"
+  # Support for go1.5
+    GO15VENDOREXPERIMENT: 1
+
+  hosts:
+  # Not used yet
+    fancy: 127.0.0.1
+
+dependencies:
+
+  override:
+  # Install dependencies for every copied clone/go version
+    - gvm use stable && go get github.com/tools/godep:
+        pwd: $BASE_STABLE
+
+test:
+  pre:
+
+
+  override:
+  # Disabled the -race detector due to massive memory usage.
+  # Test, and report
+     - gvm use stable; export ROOT_PACKAGE=$(go list .); go list -tags "$DOCKER_BUILDTAGS" ./... | xargs -L 1 -I{} bash -c 'export PACKAGE={}; go test -tags "$DOCKER_BUILDTAGS" -test.short -coverprofile=$GOPATH/src/$PACKAGE/coverage.out -coverpkg=$(./coverpkg.sh $PACKAGE $ROOT_PACKAGE) $PACKAGE':
+         timeout: 600
+         pwd: $BASE_STABLE
+

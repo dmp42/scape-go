@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+test -z "$SCAPE_DEBUG" || echo "> starting my wrapper"
+
+# Get previously set go version out
+_GO_VERSION=$(cat ~/go_version 2>/dev/null || echo future)
+
+test -z "$SCAPE_DEBUG" || echo "> go version sourced: $_GO_VERSION"
+
+# Start gvm
+[[ -s "$HOME/.gvm/scripts/gvm" ]] && source "$HOME/.gvm/scripts/gvm"
+
+# Use requested go version
+gvm use $_GO_VERSION &> /dev/null
+
+# Link repo into gopath for go version
+if [[ ! -d $GOPATH/src/${SCAPE_REPO} ]]; then
+    test -z "$SCAPE_DEBUG" || echo "> symlinking /src into $GOPATH/src/${SCAPE_REPO}"
+    mkdir -p $GOPATH/src/$(dirname ${SCAPE_REPO})
+    ln -s /src $GOPATH/src/${SCAPE_REPO}
+fi
+
+# cd there
+cd $GOPATH/src/${SCAPE_REPO}
+
+# Be sure to handle vendorized deps
+GO15VENDOREXPERIMENT=1
+
+SCAPE_ROOT=$(go list .)
+
+# If this is the first time we run, get the package list for later use
+if [[ ! -f ~/package_list ]]; then
+    test -z "$SCAPE_DEBUG" || echo "> generating package list"
+    echo $(go list -tags "$SCAPE_BUILDTAGS" ./... | grep -v ^${SCAPE_ROOT}/vendor) > ~/package_list
+fi
+
+SCAPE_PKGS=$(cat ~/package_list)
+
+coverpkg(){
+    echo $(go list -tags "$SCAPE_BUILDTAGS" -f $'{{range $f := .Deps}}{{$f}}\n{{end}}' $1 | grep ^${SCAPE_ROOT} | grep -v ^${SCAPE_ROOT}/vendor | tr '\n' ',')$1
+}
+
+test -z "$SCAPE_DEBUG" || echo "> about to: eval $@"
+eval "$@"
+
+_ACTUAL_VERSION=$(gvm list | grep "=>")
+echo ${_ACTUAL_VERSION#* } > ~/go_version
